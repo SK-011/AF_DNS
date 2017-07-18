@@ -6,6 +6,7 @@ It handle A, SRV, MX, and SPF records.
 
 Example:
 
+```
 ---- config.yaml ----
 
 A:
@@ -22,7 +23,7 @@ SPF:
         any: "v=spf1 +all"
  
  ------- END -------
-
+```
 This configuration describe how to handle each kind of DNS query.
 
   A queries:

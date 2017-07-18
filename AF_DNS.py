@@ -56,7 +56,7 @@ def sigintHandler (signal, frame):
 class dnsResolver ():
 	""" DNS resolver definition """
 	confMap = None
-	dnsReply = None
+	#~ dnsReply = None
 	forwarder = None
 	socket = None
 
@@ -80,13 +80,14 @@ class dnsResolver ():
 		match = 0
 		qtype = None
 		tmpList = None
+		dnsReply = None
 
 		# If the current query is a A
 		if dnsRequest.get_q ().qtype == 1:
 
 			# If its a SSLstrip HSTS modified hostname
 			if splitQname[0] in self.confMap["SSLSTRIP"].keys ():
-				print ("[*]\tHandling SSLstrip HSTS mutation")
+				print ("[*]\tHandling SSLstrip HSTS mutation for %s" % ".".join (splitQname))
 				sys.stdout.flush ()
 
 				# Craft the query for the legit DNS server with the correct hostname
@@ -95,14 +96,14 @@ class dnsResolver ():
 				dnsRequest.q.qname.label = tuple (tmpList)
 
 				# Send the legitimate query to the DNS server
-				self.dnsReply = self.forward (dnsRequest.pack ())
+				dnsReply = self.forward (dnsRequest.pack ())
 
 				# Craft the answer for the client
 				tmpList[0] = splitQname[0]
-				self.dnsReply.q.qname.label = tuple (tmpList)
-				self.dnsReply.a.rname.label = self.dnsReply.q.qname.label
+				dnsReply.q.qname.label = tuple (tmpList)
+				dnsReply.a.rname.label = dnsReply.q.qname.label
 
-			# If it's not SSLstrip HSTS, simply handle the query
+			# If it's not SSLstrip HSTS, simply handle the query
 			else:
 				match = self.findFQDN (splitQname, self.confMap["A"])
 				qtype = "A"
@@ -122,19 +123,19 @@ class dnsResolver ():
 			match = self.findFQDN (splitQname, self.confMap["SPF"])
 			qtype = "SPF"
 
-		if self.dnsReply is None:
+		if dnsReply is None:
 
 			if match:
 				print ("[*]\tResolving %s in %s" % (".".join (splitQname), qtype))
 				sys.stdout.flush ()
-				self.dnsReply = self.resolve ('.'.join (splitQname), self.confMap[qtype][match], dnsRequest, qtype)
+				dnsReply = self.resolve ('.'.join (splitQname), self.confMap[qtype][match], dnsRequest, qtype)
 
 			else:
 				print ("[*]\tForwarding %s to external resolver" % '.'.join (splitQname))
 				sys.stdout.flush ()
-				self.dnsReply = self.forward (rawRequest)
+				dnsReply = self.forward (rawRequest)
 
-		return self.dnsReply
+		return dnsReply
 
 	def resolve (self, question, answer, request, qtype):
 		dnsReply = request.reply ()

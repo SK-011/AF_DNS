@@ -1,13 +1,13 @@
 A:
         www.facebook.com: "127.0.0.1"
-        google.fr: "127.0.0.1"
-        www.squad.fr: "127.0.0.1"
+        google.com: "127.0.0.1"
+        www.amazon.com: "127.0.0.1"
 
 SRV:
         any: "127.0.0.1"
 
 MX:
-        squad.pro: "127.0.0.1"
+        protonmail.com: "127.0.0.1"
 
 SPF:
         any: "v=spf1 +all"

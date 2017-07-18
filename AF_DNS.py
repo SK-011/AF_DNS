@@ -55,10 +55,10 @@ def sigintHandler (signal, frame):
 
 class dnsResolver ():
 	""" DNS resolver definition """
-	confMap = ""
-	dnsReply = ""
-	forwarder = ""
-	socket = ""
+	confMap = None
+	dnsReply = None
+	forwarder = None
+	socket = None
 
 	def __init__ (self, ip, confMap):
 		print ("[*]\tThe DNS resolver for this session is %s" % ip)
@@ -78,12 +78,34 @@ class dnsResolver ():
 		dnsRequest = DNSRecord.parse (rawRequest)
 		splitQname = dnsRequest.get_q ().qname.label
 		match = 0
-		qtype = ""
+		qtype = None
+		tmpList = None
 
 		# If the current query is a A
 		if dnsRequest.get_q ().qtype == 1:
-			match = self.findFQDN (splitQname, self.confMap["A"])
-			qtype = "A"
+
+			# If its a SSLstrip HSTS modified hostname
+			if splitQname[0] in self.confMap["SSLSTRIP"].keys ():
+				print ("[*]\tHandling SSLstrip HSTS mutation")
+				sys.stdout.flush ()
+
+				# Craft the query for the legit DNS server with the correct hostname
+				tmpList = list (dnsRequest.q.qname.label)
+				tmpList[0] = self.confMap["SSLSTRIP"][splitQname[0]]
+				dnsRequest.q.qname.label = tuple (tmpList)
+
+				# Send the legitimate query to the DNS server
+				self.dnsReply = self.forward (dnsRequest.pack ())
+
+				# Craft the answer for the client
+				tmpList[0] = splitQname[0]
+				self.dnsReply.q.qname.label = tuple (tmpList)
+				self.dnsReply.a.rname.label = self.dnsReply.q.qname.label
+
+			# If it's not SSLstrip HSTS, simply handle the query
+			else:
+				match = self.findFQDN (splitQname, self.confMap["A"])
+				qtype = "A"
 
 		# If it's a SRV
 		elif dnsRequest.get_q ().qtype == 33:
@@ -100,40 +122,49 @@ class dnsResolver ():
 			match = self.findFQDN (splitQname, self.confMap["SPF"])
 			qtype = "SPF"
 
-		if match:
-			print ("[*]\tResolving %s in %s" % (".".join (splitQname), qtype))
-			sys.stdout.flush ()
-			self.resolve ('.'.join (splitQname), self.confMap[qtype][match], dnsRequest, qtype)
+		if self.dnsReply is None:
 
-		else:
-			print ("[*]\tForwarding %s to external resolver" % '.'.join (splitQname))
-			sys.stdout.flush ()
-			self.forward (rawRequest)
+			if match:
+				print ("[*]\tResolving %s in %s" % (".".join (splitQname), qtype))
+				sys.stdout.flush ()
+				self.dnsReply = self.resolve ('.'.join (splitQname), self.confMap[qtype][match], dnsRequest, qtype)
+
+			else:
+				print ("[*]\tForwarding %s to external resolver" % '.'.join (splitQname))
+				sys.stdout.flush ()
+				self.dnsReply = self.forward (rawRequest)
 
 		return self.dnsReply
 
 	def resolve (self, question, answer, request, qtype):
-		self.dnsReply = request.reply ()
+		dnsReply = request.reply ()
 		
 		# If the current query is a A
 		if qtype == "A":
-			self.dnsReply.add_answer (RR (question, rdata = A (answer)))
+			#~ self.dnsReply.add_answer (RR (question, rdata = A (answer)))
+			dnsReply.add_answer (RR (question, rdata = A (answer)))
 
 		# If it's a SRV
 		elif qtype == "SRV":
 			# Craft a SRV LDAP response (priority 0, weight 100, port 389)
-			self.dnsReply.add_answer (RR (question, QTYPE.SRV, rdata = SRV (0, 100, 389, answer)))
+			#~ self.dnsReply.add_answer (RR (question, QTYPE.SRV, rdata = SRV (0, 100, 389, answer)))
+			dnsReply.add_answer (RR (question, QTYPE.SRV, rdata = SRV (0, 100, 389, answer)))
 
 		# If it's a MX
 		elif qtype == "MX":
 			# Craft a MX response (priority 10)
-			self.dnsReply.add_answer (RR (question, QTYPE.MX, rdata = MX (answer, 10)))
+			#~ self.dnsReply.add_answer (RR (question, QTYPE.MX, rdata = MX (answer, 10)))
+			dnsReply.add_answer (RR (question, QTYPE.MX, rdata = MX (answer, 10)))
 
 		# If it's a SPF
 		elif qtype == "SPF":
-			self.dnsReply.add_answer (RR (question, QTYPE.SPF, rdata = TXT (answer)))
+			#~ self.dnsReply.add_answer (RR (question, QTYPE.SPF, rdata = TXT (answer)))
+			dnsReply.add_answer (RR (question, QTYPE.SPF, rdata = TXT (answer)))
+
+		return (dnsReply)
 
 	def forward (self, request):
+		dnsReply = None
 
 		try:
 			self.socket.sendto (request, (self.forwarder, 53))
@@ -142,10 +173,13 @@ class dnsResolver ():
 			data = d[0]
 			addr = d[1]
 	
-			self.dnsReply = DNSRecord.parse (data)
+			#~ self.dnsReply = DNSRecord.parse (data)
+			dnsReply = DNSRecord.parse (data)
 
 		except socket.error:
 			print ("[!]\tFailed to forward DNS request")
+
+		return (dnsReply)
 
 	def close (self):
 		self.socket.close ()
@@ -189,7 +223,7 @@ class dnsListener ():
 	""" DNS server definition """
 	ip = "127.0.0.1"
 	port = "53"
-	socket = ""
+	socket = None
 
 	def __init__ (self, lIp, lPort):
 		print ("[*]\tListening on %s:%s" % (lIp, lPort))
@@ -236,7 +270,8 @@ class dnsListener ():
 
 			# Forward the received data to the resolver
 			reply = resolver.run (data)
-		
+
+			# Answer to the client
 			try:
 				self.socket.sendto (reply.pack (), addr)
 

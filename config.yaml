@@ -11,3 +11,7 @@ MX:
 
 SPF:
         any: "v=spf1 +all"
+
+SSLSTRIP:
+        wwww: "www"
+        mail: "mails"

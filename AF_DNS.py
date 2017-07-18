@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-import pprint
+from pprint import pprint
 import getopt
 import sys
 import signal
@@ -10,7 +10,7 @@ from dnslib import *
 
 def usage (progName):
 	""" Print the program's usage and then sys.exit() """
-	print ("Usage: %s -c <conf. file> -l <listening address> -p <listening port> -r <remote resolver IP> " % progName)
+	print ("Usage: %s -c <configuration file> -l <listening address> -p <listening port> -r <remote resolver IP> " % progName)
 	sys.stdout.flush ()
 	sys.exit (0)
 
@@ -55,7 +55,7 @@ def sigintHandler (signal, frame):
 
 class dnsResolver ():
 	""" DNS resolver definition """
-	ipMap = {}
+	confMap = ""
 	dnsReply = ""
 	forwarder = ""
 	socket = ""
@@ -64,7 +64,7 @@ class dnsResolver ():
 		print ("[*]\tThe DNS resolver for this session is %s" % ip)
 		sys.stdout.flush ()
 		self.forwarder = ip
-		self.ipMap = confMap
+		self.confMap = confMap
 
 		try:
 			self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM)
@@ -76,52 +76,62 @@ class dnsResolver ():
 
 	def run (self, rawRequest):
 		dnsRequest = DNSRecord.parse (rawRequest)
-		splitRequest = dnsRequest.get_q()._qname.label
+		splitQname = dnsRequest.get_q ().qname.label
 		match = 0
+		qtype = ""
 
-		# For each IP contained in the YAML conf. file
-		for ip in self.ipMap.keys ():
+		# If the current query is a A
+		if dnsRequest.get_q ().qtype == 1:
+			match = self.findFQDN (splitQname, self.confMap["A"])
+			qtype = "A"
 
-			# For each domain
-			for domain in self.ipMap[ip]:
-				splitDomain = domain.split ('.')
+		# If it's a SRV
+		elif dnsRequest.get_q ().qtype == 33:
+			match = self.findFQDN (splitQname, self.confMap["SRV"])
+			qtype = "SRV"
 
-				if len (splitRequest) < len (splitDomain):
-					break
+		# If it's a MX
+		elif dnsRequest.get_q ().qtype == 15:
+			match = self.findFQDN (splitQname, self.confMap["MX"])
+			qtype = "MX"
 
-				# Compare each request FQDN element with current config. domain from end to beginning
-				for i in range (-1, -(len (splitRequest)) - 1, -1):
-
-					# If the current FQDN matches the current config. domain
-					if ((splitDomain[i] == splitRequest[i]) or (not splitDomain[i] and i ** 2 == len (splitDomain) ** 2 )):
-						match = 1
-
-					else:
-						match = 0
-						break
-						
-				if match:
-					break
-			
-			if match:
-				dnsAnswer = ip
-				break
+		# If it's a SPF
+		elif dnsRequest.get_q ().qtype == 99:
+			match = self.findFQDN (splitQname, self.confMap["SPF"])
+			qtype = "SPF"
 
 		if match:
-			print ("[*]\tResolving %s" % '.'.join (splitRequest))
+			print ("[*]\tResolving %s in %s" % (".".join (splitQname), qtype))
 			sys.stdout.flush ()
-			self.resolve ('.'.join (splitRequest), dnsAnswer, dnsRequest)
+			self.resolve ('.'.join (splitQname), self.confMap[qtype][match], dnsRequest, qtype)
 
 		else:
-			print ("[*]\tForwarding %s to external resolver" % '.'.join (splitRequest))
+			print ("[*]\tForwarding %s to external resolver" % '.'.join (splitQname))
 			sys.stdout.flush ()
 			self.forward (rawRequest)
 
 		return self.dnsReply
 
-	def resolve (self, question, answer, request):
+	def resolve (self, question, answer, request, qtype):
 		self.dnsReply = request.reply ()
-		self.dnsReply.add_answer (RR (question, rdata = A (answer)))
+		
+		# If the current query is a A
+		if qtype == "A":
+			self.dnsReply.add_answer (RR (question, rdata = A (answer)))
+
+		# If it's a SRV
+		elif qtype == "SRV":
+			# Craft a SRV LDAP response (priority 0, weight 100, port 389)
+			self.dnsReply.add_answer (RR (question, QTYPE.SRV, rdata = SRV (0, 100, 389, answer)))
+
+		# If it's a MX
+		elif qtype == "MX":
+			# Craft a MX response (priority 10)
+			self.dnsReply.add_answer (RR (question, QTYPE.MX, rdata = MX (answer, 10)))
+
+		# If it's a SPF
+		elif qtype == "SPF":
+			self.dnsReply.add_answer (RR (question, QTYPE.SPF, rdata = TXT (answer)))
 
 	def forward (self, request):
 
@@ -136,10 +146,42 @@ class dnsResolver ():
 
 		except socket.error:
 			print ("[!]\tFailed to forward DNS request")
-			sys.exit (1)
 
 	def close (self):
 		self.socket.close ()
+
+	def findFQDN (self, fqdn, confHash):
+		match = 0
+
+		# For each Hash in the "A" part of the conf file
+		for key in confHash:
+
+			if key == "any":
+				match = "any"
+				break
+
+			confFQDN = key.split ('.')
+
+			# Continue to the next loop if query FQDN is less specific than the conf FQDN
+			if len (fqdn) < len (confFQDN):
+				continue
+
+			# Compare each request FQDN element with current conf domain from end to beginning
+			for i in range (-1, -(len (confFQDN)) - 1, -1):
+
+				if fqdn[i] == confFQDN[i]:
+
+					if -i == len (confFQDN):
+						match = 1
+						break
+				else:
+					break
+					
+			if match:
+				match = key
+				break
+
+		return (match)
 
 
 
@@ -184,7 +226,6 @@ class dnsListener ():
 			except socket.error:
 				print ("[!]\tError while receiving data from client")
 				sys.stdout.flush ()
-				sys.exit (1)
 
 			data = d[0]
 			addr = d[1]
@@ -195,14 +236,13 @@ class dnsListener ():
 
 			# Forward the received data to the resolver
 			reply = resolver.run (data)
-
+		
 			try:
-				self.socket.sendto (reply.pack(), addr)
+				self.socket.sendto (reply.pack (), addr)
 
 			except:
 				print ("[!]\tFailed to reply to DNS query")
 				sys.stdout.flush ()
-				sys.exit (1)
 
 	def close (self):
 		self.socket.close ()

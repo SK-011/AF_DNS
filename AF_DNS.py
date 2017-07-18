@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-from pprint import pprint
+#~ from pprint import pprint
 import getopt
 import sys
 import signal
@@ -56,7 +56,6 @@ def sigintHandler (signal, frame):
 class dnsResolver ():
 	""" DNS resolver definition """
 	confMap = None
-	#~ dnsReply = None
 	forwarder = None
 	socket = None
 

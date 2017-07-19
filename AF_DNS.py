@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-from pprint import pprint
+#~ from pprint import pprint
 import getopt
 import sys
 import signal
@@ -104,10 +104,16 @@ class dnsResolver ():
 				# Send the legitimate query to the DNS server
 				dnsReply = self.forward (dnsRequest.pack ())
 
+				# If the first element where empty and stripped, put it back
+				if len (tmpList) < len (splitQname):
+					tmpList.insert (0, "")
+
 				# Craft the answer for the client
 				tmpList[0] = splitQname[0]
 				dnsReply.q.qname.label = tuple (tmpList)
-				dnsReply.a.rname.label = dnsReply.q.qname.label
+
+				for rr in dnsReply.rr:
+					rr.rname.label = dnsReply.q.qname.label
 
 			# If it's not SSLstrip HSTS, simply handle the query
 			else:

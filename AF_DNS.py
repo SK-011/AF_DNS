@@ -68,7 +68,7 @@ class dnsResolver ():
 		try:
 			self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM)
 			self.socket.setblocking (0)
-			self.socket.settimeout (2)
+			self.socket.settimeout (5)
 
 		except socket.error:
 			print ("[!]\tFailed to create forwarding socket")
@@ -100,8 +100,6 @@ class dnsResolver ():
 					del (tmpList[0])
 
 				dnsRequest.q.qname.label = tuple (tmpList)
-
-				pprint (dnsRequest.q.qname.label)
 
 				# Send the legitimate query to the DNS server
 				dnsReply = self.forward (dnsRequest.pack ())

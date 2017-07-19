@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-#~ from pprint import pprint
+from pprint import pprint
 import getopt
 import sys
 import signal
@@ -67,6 +67,8 @@ class dnsResolver ():
 
 		try:
 			self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM)
+			self.socket.setblocking (0)
+			self.socket.settimeout (2)
 
 		except socket.error:
 			print ("[!]\tFailed to create forwarding socket")
@@ -92,7 +94,14 @@ class dnsResolver ():
 				# Craft the query for the legit DNS server with the correct hostname
 				tmpList = list (dnsRequest.q.qname.label)
 				tmpList[0] = self.confMap["SSLSTRIP"][splitQname[0]]
+
+				# Remove the first part of the hostname if it's empty
+				if len (tmpList[0]) == 0:
+					del (tmpList[0])
+
 				dnsRequest.q.qname.label = tuple (tmpList)
+
+				pprint (dnsRequest.q.qname.label)
 
 				# Send the legitimate query to the DNS server
 				dnsReply = self.forward (dnsRequest.pack ())
@@ -173,7 +182,6 @@ class dnsResolver ():
 			data = d[0]
 			addr = d[1]
 	
-			#~ self.dnsReply = DNSRecord.parse (data)
 			dnsReply = DNSRecord.parse (data)
 
 		except socket.error:
